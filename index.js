@@ -1,180 +1,197 @@
 const cheerio = require("cheerio");
 const fs = require("fs/promises");
+const { v4: uuidV4 } = require("uuid");
+const pluralize = require("pluralize");
 const path = require("path");
-const jobZone = require("./job_zones.json");
-const { v4: uuidv4 } = require("uuid");
+const _ = require("lodash");
 
-// console.log(zones);
+const MASTER_DATA = {
+  ZONES: [
+    {
+      id: uuidV4(),
+      description: "Little or No Preparation Needed",
+      zone: 1,
+    },
+    {
+      id: uuidV4(),
+      description: "Some Preparation Needed",
+      zone: 2,
+    },
+    {
+      id: uuidV4(),
+      description: "Medium Preparation Needed",
+      zone: 3,
+    },
+  ],
+  JOB_CODES: [],
+  JOBS: [],
+  Tasks: [],
+  TechnologySkills: [],
+  WorkActivities: [],
+  DetailedWorkActivities: [],
+  WorkContext: [],
+  Skills: [],
+  Knowledge: [],
+  Abilities: [],
+};
 
-const getHtml = async (url) => {
+const load = async (url) => {
   try {
     const res = await fetch(url);
-    return res.text();
-  } catch (error) {
-    console.log(error);
+    const html = await res.text();
+
+    return html;
+  } catch (err) {
+    console.log(err);
   }
 };
 
-const processPage = async (url) => {
-  const html = await getHtml(url);
-  if (!html) return;
+const getAllJobCodes = async () => {
+  try {
+    const codes = [];
 
-  const $ = cheerio.load(html);
+    for (let i = 1; i <= 3; i++) {
+      const html = await load(`https://www.onetonline.org/find/zone?z=${i}`);
+      const $ = cheerio.load(html);
+      const tableRows = $("#content > table > tbody").find("tr").get();
 
-  const z = $("#z option[selected]");
-  const zoneId = $(z).attr("value");
-  const zoneDescription = $(z).text().split(":")[1].trim();
-
-  const rows = $("tbody tr");
-
-  const zone = {
-    zone: zoneId,
-    description: zoneDescription,
-    occupations: [],
-  };
-
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i];
-    const code = $(row).find('td[data-title="Code"]').text().trim();
-    const title = $(row).find('td[data-title="Occupation"]').text().trim();
-    const job_links = $(row).find("a").attr("href");
-
-    let reportedJobTitles = [];
-
-    if (job_links) {
-      const jobLink = new URL(job_links, url).href;
-      const jobHtml = await getHtml(jobLink);
-      const $job = cheerio.load(jobHtml);
-
-      const jobCode = $job(".sub")
-        .children("div")
-        .find("div > div:first")
-        .text()
-        .trim();
-
-      // Extracting Data
-      const getJobData = (selector) => {
-        const wa = $job(`#${selector}`).find("ul");
-        const work = wa.find("li").get();
-        const data = [];
-        const taskMap = new Map();
-
-        work.forEach((w, i) => {
-          const text = $(w).find("div > div:first").text();
-
-          if (taskMap.has(text)) {
-            // Update relation if task already exists
-            const existingTaskIndex = taskMap.get(text);
-            const existingTask = data[existingTaskIndex];
-            if (!existingTask.relation.includes(jobCode)) {
-              existingTask.relation.push(jobCode);
-            }
-          } else {
-            // Add new task
-            const newTask = {
-              id: uuidv4(),
-              [selector]: text,
-              relation: [jobCode],
-            };
-            data.push(newTask);
-            taskMap.set(text, data.length - 1);
-          }
-
-          console.log(data);
-        });
-
-        // Update each task with the count of job codes
-        data.forEach((task) => {
-          task.relationCount = task.relation.length;
-        });
-
-        return data;
-      };
-
-      getJobData("Tasks");
-
-      //Extracting Data
-      // const getJobData = (selector) => {
-      //   const wa = $job(`#${selector}`).find("ul");
-      //   const work = wa.find("li").get();
-      //   const data = [];
-
-      //   work.forEach((w, i) => {
-      //     const text = $(w).find("div > div:first").text();
-      //     data.push({
-      //       id: uuidv4(),
-      //       [selector]: text,
-      //     });
-
-      //     console.log(data);
-      //   });
-      //   return data;
-      // };
-
-      // getJobData("Tasks");
-
-      const titlesText = $job("div[id='content']")
-        .children("p:nth-of-type(2)")
-        .contents("b")
-        .text();
-      reportedJobTitles = titlesText.split(":").map((title) => title.trim());
-      reportedJobTitles.shift(); // Remove first element if needed
-      reportedJobTitles = [...new Set(reportedJobTitles)]; // Remove duplicates
-    }
-
-    for (let i = 0; i < jobZone.length; i++) {
-      zone.occupations.push({
-        zonId: [jobZone[i].id],
-        code: code,
-        title: title,
-        reportedJobTitles: reportedJobTitles,
+      tableRows.forEach((row) => {
+        codes.push($(row).find("td:first").text());
       });
     }
-  }
 
-  return zone;
+    return codes;
+  } catch (err) {
+    console.log(err);
+  }
+};
+
+const getJobDetails = async (url) => {
+  // {
+  //   code,
+  //   title,
+  //   reportedTitles,
+  //   zoneId,
+  // }
+  const jobDetails = {};
+
+  try {
+    const html = await load(url);
+    const $ = cheerio.load(html);
+
+    // Get Job Data (code, title, reportedTitle)
+    const code = $("#content > h1 > span.sub").find("div > div:first").text();
+    const title = $("#content > h1 > span.main").text();
+
+    let reportedTitles = $("#content > p:nth-child(3)")
+      .text()
+      .split(":")
+      .map((title) => title.trim());
+    reportedTitles.shift();
+    reportedTitles = [...new Set(reportedTitles)];
+    const zoneDescription = $("#JobZone > dl > dd:nth-child(2)")
+      .text()
+      ?.split(":")[1]
+      ?.trim();
+    const jobZone = MASTER_DATA.ZONES.filter((zone) => {
+      return zone.description.toLowerCase() === zoneDescription.toLowerCase();
+    })[0];
+    const zoneId = jobZone.id;
+
+    MASTER_DATA.JOBS.push({
+      code,
+      title,
+      reportedTitles,
+      zoneId,
+    });
+
+    // Get Job Tasks and other Job related data
+    const selectors = [
+      "Tasks",
+      "TechnologySkills",
+      "WorkActivities",
+      "DetailedWorkActivities",
+      "WorkContext",
+      "Skills",
+      "Knowledge",
+      "Abilities",
+    ];
+
+    for (let selector of selectors) {
+      const list = $(`#${selector}`).find("li").get();
+      const p = _.camelCase(selector);
+      jobDetails[p] = [];
+
+      list.forEach((item) => {
+        const data = {
+          id: uuidV4(),
+          [pluralize.singular(selector.toLowerCase())]: $(item)
+            .find("div > div:first")
+            .text(),
+          jobCode: code,
+        };
+
+        MASTER_DATA[selector].push(data);
+      });
+    }
+  } catch (err) {
+    console.log(err);
+  }
 };
 
 (async () => {
-  const zones = ["one", "two", "three"];
-  // for (let i = 0; i < jobZone.length; i++) {
-  //   let zones = await jobZone[i].zone;
-  // }
-
   try {
-    await createDir(path.join(__dirname, "data"));
-    await createDir(path.join(__dirname, "jobInfo"));
+    createDataDir();
 
-    for (let i = 0; i < zones.length; i++) {
-      const startTime = Date.now();
-      const data = await processPage(
-        `https://www.onetonline.org/find/zone?z=${i + 1}`
+    const jobCodes = await getAllJobCodes();
+    MASTER_DATA.JOB_CODES = jobCodes;
+
+    // All job details
+    console.log("Started");
+    const startTime = Date.now();
+    for (let i = 0; i < MASTER_DATA.JOB_CODES.length; i++) {
+      await getJobDetails(
+        `https://www.onetonline.org/link/summary/${MASTER_DATA.JOB_CODES[i]}`
       );
-      const endTime = Date.now();
-
-      const filePath = path.join(__dirname, "data", `zone-${zones[i]}.json`);
-      await fs.writeFile(filePath, JSON.stringify(data, null, 2), {
-        encoding: "utf-8",
-      });
-
       console.log(
-        `Completed Zone ${zones[i]} in ${(endTime - startTime) / 1000}s`
+        `Completed ${MASTER_DATA.JOB_CODES[i]} ${i + 1}/${
+          MASTER_DATA.JOB_CODES.length
+        }`
       );
     }
+    const endTime = Date.now();
+    console.log(`Extracted data in ${(endTime - startTime) / 1000}s`);
 
-    console.log("Writing JSON to file");
+    console.log("Writing to file..");
+    for (let [key, value] of Object.entries(MASTER_DATA)) {
+      await writeToFile(
+        path.join(__dirname, "data", `${_.camelCase(key)}.json`),
+        JSON.stringify(value, null, 4)
+      );
+    }
+    console.log("Successfully written to file");
   } catch (err) {
-    console.log("Error while scrapping", err);
+    console.log("Error", err);
   }
 })();
 
-async function createDir(path) {
+async function writeToFile(filepath, content) {
   try {
-    await fs.stat(path);
+    await fs.writeFile(filepath, content, {
+      encoding: "utf-8",
+    });
+  } catch (err) {
+    throw new Error(err);
+  }
+}
+
+async function createDataDir() {
+  try {
+    await fs.stat(path.join(__dirname, "data"));
     return;
   } catch (err) {
     if (err.code === "ENOENT") {
-      await fs.mkdir(path);
+      await fs.mkdir(path.join(__dirname, "data"));
     }
   }
 }
