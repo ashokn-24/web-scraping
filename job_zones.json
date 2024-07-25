@@ -1,0 +1,17 @@
+[
+  {
+    "id": "cff8b6ed-f2bc-4a86-9f98-b401fffa2027",
+    "description": "Little or No Preparation Needed",
+    "zone": 1
+  },
+  {
+    "id": "03fce7cd-c5fa-4cb8-93a9-277c62cef462",
+    "description": "Medium Preparation Needed",
+    "zone": 2
+  },
+  {
+    "id": "0030d5b2-fbe0-4333-bc28-9a9eb71dae29",
+    "description": "Some Preparation Needed",
+    "zone": 3
+  }
+]
