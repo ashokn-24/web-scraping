@@ -1,6 +1,10 @@
 const cheerio = require("cheerio");
 const fs = require("fs/promises");
 const path = require("path");
+const jobZone = require("./job_zones.json");
+const { v4: uuidv4 } = require("uuid");
+
+// console.log(zones);
 
 const getHtml = async (url) => {
   try {
@@ -41,6 +45,74 @@ const processPage = async (url) => {
       const jobLink = new URL(job_links, url).href;
       const jobHtml = await getHtml(jobLink);
       const $job = cheerio.load(jobHtml);
+
+      const jobCode = $job(".sub")
+        .children("div")
+        .find("div > div:first")
+        .text()
+        .trim();
+
+      // Extracting Data
+      const getJobData = (selector) => {
+        const wa = $job(`#${selector}`).find("ul");
+        const work = wa.find("li").get();
+        const data = [];
+        const taskMap = new Map();
+
+        work.forEach((w, i) => {
+          const text = $(w).find("div > div:first").text();
+
+          if (taskMap.has(text)) {
+            // Update relation if task already exists
+            const existingTaskIndex = taskMap.get(text);
+            const existingTask = data[existingTaskIndex];
+            if (!existingTask.relation.includes(jobCode)) {
+              existingTask.relation.push(jobCode);
+            }
+          } else {
+            // Add new task
+            const newTask = {
+              id: uuidv4(),
+              [selector]: text,
+              relation: [jobCode],
+            };
+            data.push(newTask);
+            taskMap.set(text, data.length - 1);
+          }
+
+          console.log(data);
+        });
+
+        // Update each task with the count of job codes
+        data.forEach((task) => {
+          task.relationCount = task.relation.length;
+        });
+
+        return data;
+      };
+
+      getJobData("Tasks");
+
+      //Extracting Data
+      // const getJobData = (selector) => {
+      //   const wa = $job(`#${selector}`).find("ul");
+      //   const work = wa.find("li").get();
+      //   const data = [];
+
+      //   work.forEach((w, i) => {
+      //     const text = $(w).find("div > div:first").text();
+      //     data.push({
+      //       id: uuidv4(),
+      //       [selector]: text,
+      //     });
+
+      //     console.log(data);
+      //   });
+      //   return data;
+      // };
+
+      // getJobData("Tasks");
+
       const titlesText = $job("div[id='content']")
         .children("p:nth-of-type(2)")
         .contents("b")
@@ -50,11 +122,14 @@ const processPage = async (url) => {
       reportedJobTitles = [...new Set(reportedJobTitles)]; // Remove duplicates
     }
 
-    zone.occupations.push({
-      code: code,
-      title: title,
-      reportedJobTitles: reportedJobTitles,
-    });
+    for (let i = 0; i < jobZone.length; i++) {
+      zone.occupations.push({
+        zonId: [jobZone[i].id],
+        code: code,
+        title: title,
+        reportedJobTitles: reportedJobTitles,
+      });
+    }
   }
 
   return zone;
@@ -62,9 +137,13 @@ const processPage = async (url) => {
 
 (async () => {
   const zones = ["one", "two", "three"];
+  // for (let i = 0; i < jobZone.length; i++) {
+  //   let zones = await jobZone[i].zone;
+  // }
 
   try {
     await createDir(path.join(__dirname, "data"));
+    await createDir(path.join(__dirname, "jobInfo"));
 
     for (let i = 0; i < zones.length; i++) {
       const startTime = Date.now();
